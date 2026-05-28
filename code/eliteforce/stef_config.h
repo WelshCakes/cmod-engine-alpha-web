@@ -87,6 +87,11 @@
 // engine) for alt swapping, this handler is the preferred and most reliable method.
 #define STEF_SERVER_ALT_SWAP_SUPPORT
 
+// [FEATURE] Improved UDP download rate control for better performance, especially
+// on slower or less stable connections. Also includes support for downloads larger
+// than 32MB via increased block size.
+#define STEF_UDP_DOWNLOAD_OPTIMIZE
+
 // [TWEAK] Disable auto-running or saving config files in dedicated server build.
 // Only settings manually specified using e.g. exec on command line are loaded.
 #if defined( DEDICATED )
@@ -121,6 +126,20 @@
 // Aas files are often valid to use even if this checksum doesn't match.
 #define STEF_IGNORE_AAS_CHECKSUM
 
+// [TWEAK] Don't send reliable commands to loading clients. These commands don't seem
+// necessary and may contribute to issues like stuck scoreboard when player joins server
+// around the same time as mid-round intermission (testing needed on this issue).
+#define STEF_SKIP_PRE_ACTIVE_COMMANDS
+
+// [TWEAK] Use alternative to some questionable dropped gamestate handling changes in Q3E.
+// Significantly simplifies code and fixes some potential issues involving UDP downloads.
+#define STEF_REWORK_GAMESTATE_RETRANSMIT
+
+// [TWEAK] Avoid 1.20 clients loading the map twice when downloads complete.
+#if defined( STEF_REWORK_GAMESTATE_RETRANSMIT )
+#define STEF_UDP_DOWNLOAD_NO_DOUBLE_LOAD
+#endif
+
 // [BUGFIX] Workaround to allow certain older ioEF versions (e.g. 1.37) to successfully
 // negotiate protocol version and connect to the server.
 #define STEF_PROTOCOL_MSG_FIX
@@ -132,9 +151,6 @@
 // a player with certain long model names to crash other clients under certain conditions.
 #define STEF_MODEL_NAME_LENGTH_LIMIT
 
-// [BUGFIX] Increase max UDP download size from 32MB to 128MB by increasing block size.
-#define STEF_INCREASE_DOWNLOAD_BLOCK_SIZE
-
 // [BUGFIX] Workaround for game code bug when creating EV_SHIELD_HIT event.
 // This fixes the green shield effect so it is displayed reliably, unlike the original
 // game where it depended on the position/visibility of the player relative to the map's
@@ -142,22 +158,9 @@
 // coordinated with game module fixes in order to work consistently.
 #define STEF_SHIELD_EFFECT_FIX
 
-// [BUGFIX] Disable force-spawning loading players into game during map restart.
-// Fixes freezing after UDP download due to CS_ACTIVE check in SV_DoneDownload_f.
-#define STEF_MAP_RESTART_NO_LOADING_SPAWN
-
-// [BUGFIX] Set players to CS_CONNECTED during UDP downloads, preventing server commands
-// being added in SV_AddServerCommand which can accumulate without being sent properly.
-#define STEF_DOWNLOAD_CONNECTION_STATE_FIX
-
 // [BUGFIX] Fix for "Delta parseEntitiesNum too old" errors in certain cases.
 // (40+ sv_fps value + 1.20 client + high ping/bad connection)
 #define STEF_SNAPSHOT_DELTA_BUFFER_FIX
-
-// [BUGFIX] Use alternative to changing serverid during map restarts.
-// This avoids the need for a systeminfo update during map restarts and potentially fixes
-// some intermittent buggy behavior seen in the EF 1.20 client.
-#define STEF_MAP_RESTART_STATIC_SERVERID
 
 // [BUGFIX] Prevent gamestate overflows by dropping entity baselines.
 // Fixes errors on certain maps under certain conditions.

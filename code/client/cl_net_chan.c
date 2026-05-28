@@ -155,17 +155,6 @@ CL_Netchan_Transmit
 ================
 */
 void CL_Netchan_Transmit( netchan_t *chan, msg_t* msg ) {
-#ifdef ELITEFORCE
-	if( !chan->compat )
-#endif
-	MSG_WriteByte( msg, clc_EOF );
-
-	if ( msg->overflowed ) {
-		if ( cls.state >= CA_CONNECTED && cls.state != CA_CINEMATIC ) {
-			cls.state = CA_CONNECTING; // to avoid recursive error
-		}
-		Com_Error( ERR_DROP, "%s: message overflowed", __func__ );
-	}
 
 #ifndef ELITEFORCE
 	if ( chan->compat )

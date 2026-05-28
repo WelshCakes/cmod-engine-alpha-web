@@ -84,10 +84,10 @@ static void SV_GameSendServerCommand( int clientNum, const char *text ) {
 	if ( clientNum == -1 ) {
 		SV_SendServerCommand( NULL, "%s", text );
 	} else {
-		if ( clientNum < 0 || clientNum >= sv_maxclients->integer ) {
+		if ( clientNum < 0 || clientNum >= sv.maxclients ) {
 			return;
 		}
-		SV_SendServerCommand( svs.clients + clientNum, "%s", text );	
+		SV_SendServerCommand( svs.clients + clientNum, "%s", text );
 	}
 }
 
@@ -100,10 +100,10 @@ Disconnects the client with a message
 ===============
 */
 static void SV_GameDropClient( int clientNum, const char *reason ) {
-	if ( clientNum < 0 || clientNum >= sv_maxclients->integer ) {
+	if ( clientNum < 0 || clientNum >= sv.maxclients ) {
 		return;
 	}
-	SV_DropClient( svs.clients + clientNum, reason );	
+	SV_DropClient( svs.clients + clientNum, reason );
 }
 
 
@@ -293,7 +293,7 @@ SV_GetUsercmd
 ===============
 */
 static void SV_GetUsercmd( int clientNum, usercmd_t *cmd ) {
-	if ( (unsigned) clientNum < sv_maxclients->integer ) {
+	if ( (unsigned) clientNum < sv.maxclients ) {
 		*cmd = svs.clients[ clientNum ].lastUsercmd;
 	} else {
 		Com_Error( ERR_DROP, "%s(): bad clientNum: %i", __func__, clientNum );
@@ -345,6 +345,12 @@ static qboolean SV_GetValue( char* value, int valueSize, const char* key )
 	if ( !Q_stricmp( key, "SVF_SELF_PORTAL2_Q3E" ) )
 	{
 		Com_sprintf( value, valueSize, "%i", SVF_SELF_PORTAL2 );
+		return qtrue;
+	}
+
+	if ( !Q_stricmp( key, "trap_Cvar_SetDescription_Q3E" ) )
+	{
+		Com_sprintf( value, valueSize, "%i", G_CVAR_SETDESCRIPTION );
 		return qtrue;
 	}
 
@@ -509,6 +515,9 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return 0;
 	case G_SET_USERINFO:
 		SV_SetUserinfo( args[1], VMA(2) );
+#ifdef STEF_LUA_SERVER
+		SV_Lua_SimpleClientEventCall( SV_LUA_EVENT_POST_USERINFO_CHANGED, args[1] );
+#endif
 		return 0;
 	case G_GET_USERINFO:
 		VM_CHECKBOUNDS( gvm, args[2], args[3] );
@@ -535,7 +544,7 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return 0;
 	case G_GET_ENTITY_TOKEN:
 		{
-			const char *s = COM_Parse( &sv.entityParsePoint );
+			char *s = (char*)COM_Parse( &sv.entityParsePoint );
 			VM_CHECKBOUNDS( gvm, args[1], args[2] );
 			//Q_strncpyz( VMA(1), s, args[2] );
 			// we can't use our optimized Q_strncpyz() function
@@ -614,7 +623,7 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case BOTLIB_USER_COMMAND:
 		{
 			unsigned clientNum = args[1];
-			if ( clientNum < sv_maxclients->integer )
+			if ( clientNum < sv.maxclients )
 			{
 				SV_ClientThink( &svs.clients[ clientNum ], VMA(2) );
 			}
@@ -1043,6 +1052,10 @@ static intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case G_TESTPRINTFLOAT:
 		return sprintf( VMA(1), "%f", VMF(2) );
 
+	case G_CVAR_SETDESCRIPTION:
+		Cvar_SetDescription2( (const char*)VMA(1), (const char*)VMA(2) );
+		return 0;
+
 	case G_TRAP_GETVALUE:
 		VM_CHECKBOUNDS( gvm, args[1], args[2] );
 		return SV_GetValue( VMA(1), args[2], VMA(3) );
@@ -1120,12 +1133,16 @@ static void SV_InitGameVM( qboolean restart ) {
 	// a previous level
 	// https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=522
 	// now done before GAME_INIT call
-	for ( i = 0 ; i < sv_maxclients->integer ; i++ ) {
+	for ( i = 0; i < sv.maxclients; i++ ) {
 		svs.clients[i].gentity = NULL;
 	}
 	
 #ifdef STEF_SUPPORT_STATUS_SCORES_OVERRIDE
 	SV_StatusScoresOverride_Reset();
+#endif
+
+#ifdef STEF_LUA_SUPPORT
+	Stef_Lua_SimpleEventCall( SV_LUA_EVENT_PRE_GAME_INIT );
 #endif
 
 	// use the current msec count for a random seed

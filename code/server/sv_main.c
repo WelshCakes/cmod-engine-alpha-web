@@ -148,9 +148,21 @@ void SV_AddServerCommand( client_t *client, const char *cmd ) {
 //		return;
 //	}
 
+#ifdef STEF_SKIP_PRE_ACTIVE_COMMANDS
+	if ( client->state < CS_ACTIVE ) {
+		return;
+	}
+#endif
+
 	// do not send commands until the gamestate has been sent
 	if ( client->state < CS_PRIMED )
 		return;
+
+#ifdef STEF_UDP_DOWNLOAD_NO_DOUBLE_LOAD
+	if ( client->downloading ) {
+		return;
+	}
+#endif
 
 #ifdef STEF_SERVER_RECORD
 	Record_ProcessServercmd( client - svs.clients, cmd );
@@ -211,7 +223,7 @@ void QDECL SV_SendServerCommand( client_t *cl, const char *fmt, ... ) {
 	}
 
 	// send the data to all relevant clients
-	for ( j = 0, client = svs.clients; j < sv_maxclients->integer ; j++, client++ ) {
+	for ( j = 0, client = svs.clients; j < sv.maxclients; j++, client++ ) {
 		if ( len <= 1022 || client->longstr ) {
 			SV_AddServerCommand( client, message );
 		}
@@ -709,6 +721,7 @@ static void SVC_Status( const netadr_t *from ) {
 #endif
 #endif
 
+#ifndef STEF_LUA_SERVER
 	// Prevent using getstatus as an amplifier
 	if ( SVC_RateLimitAddress( from, 10, 1000 ) ) {
 		if ( com_developer->integer ) {
@@ -717,6 +730,7 @@ static void SVC_Status( const netadr_t *from ) {
 		}
 		return;
 	}
+#endif
 
 	// Allow getstatus to be DoSed relatively easily, but prevent
 	// excess outbound bandwidth usage when being flooded inbound
@@ -756,8 +770,8 @@ static void SVC_Status( const netadr_t *from ) {
 	status[0] = '\0';
 	statusLength = strlen( infostring ) + 16; // strlen( "statusResponse\n\n" )
 
-	if(com_sv_running->integer)
-	for ( i = 0 ; i < sv_maxclients->integer ; i++ ) {
+	if ( com_sv_running->integer )
+	for ( i = 0; i < sv.maxclients; i++ ) {
 		cl = &svs.clients[i];
 		if ( cl->state >= CS_CONNECTED ) {
 
@@ -805,6 +819,7 @@ static void SVC_Info( const netadr_t *from ) {
 #endif
 #endif
 
+#ifndef STEF_LUA_SERVER
 	// Prevent using getinfo as an amplifier
 	if ( SVC_RateLimitAddress( from, 10, 1000 ) ) {
 		if ( com_developer->integer ) {
@@ -813,6 +828,7 @@ static void SVC_Info( const netadr_t *from ) {
 		}
 		return;
 	}
+#endif
 
 	// Allow getinfo to be DoSed relatively easily, but prevent
 	// excess outbound bandwidth usage when being flooded inbound
@@ -832,7 +848,7 @@ static void SVC_Info( const netadr_t *from ) {
 
 	// don't count privateclients
 	count = humans = 0;
-	for ( i = sv_privateClients->integer ; i < sv_maxclients->integer ; i++ ) {
+	for ( i = sv_privateClients->integer; i < sv.maxclients; i++ ) {
 		if ( svs.clients[i].state >= CS_CONNECTED ) {
 			count++;
 			if (svs.clients[i].netchan.remoteAddress.type != NA_BOT) {
@@ -851,14 +867,13 @@ static void SVC_Info( const netadr_t *from ) {
 	Info_SetValueForKey( infostring, "hostname", sv_hostname->string );
 	Info_SetValueForKey( infostring, "mapname", sv_mapname->string );
 	Info_SetValueForKey( infostring, "clients", va("%i", count) );
-	Info_SetValueForKey(infostring, "g_humanplayers", va("%i", humans));
-	Info_SetValueForKey( infostring, "sv_maxclients", 
-		va("%i", sv_maxclients->integer - sv_privateClients->integer ) );
-	Info_SetValueForKey( infostring, "gametype", va("%i", sv_gametype->integer ) );
-	Info_SetValueForKey( infostring, "pure", va("%i", sv_pure->integer ) );
-	Info_SetValueForKey(infostring, "g_needpass", va("%d", Cvar_VariableIntegerValue("g_needpass")));
+	Info_SetValueForKey( infostring, "g_humanplayers", va( "%i", humans ) );
+	Info_SetValueForKey( infostring, "sv_maxclients", va( "%i", sv.maxclients - sv_privateClients->integer ) );
+	Info_SetValueForKey( infostring, "gametype", va( "%i", sv_gametype->integer ) );
+	Info_SetValueForKey( infostring, "pure", va( "%i", sv.pure ) );
+	Info_SetValueForKey( infostring, "g_needpass", va( "%d", Cvar_VariableIntegerValue( "g_needpass" ) ) );
 	gamedir = Cvar_VariableString( "fs_game" );
-	if( *gamedir ) {
+	if ( *gamedir != '\0' ) {
 		Info_SetValueForKey( infostring, "game", gamedir );
 	}
 
@@ -903,6 +918,7 @@ static void SVC_RemoteCommand( const netadr_t *from ) {
 	char		sv_outputbuf[1024 - 16];
 	const char	*cmd_aux, *pw;
 
+#ifndef STEF_LUA_SERVER
 	// Prevent using rcon as an amplifier and make dictionary attacks impractical
 	if ( SVC_RateLimitAddress( from, 10, 1000 ) ) {
 		if ( com_developer->integer ) {
@@ -911,6 +927,7 @@ static void SVC_RemoteCommand( const netadr_t *from ) {
 		}
 		return;
 	}
+#endif
 
 	pw = Cmd_Argv( 1 );
 	if ( ( sv_rconPassword->string[0] && strcmp( pw, sv_rconPassword->string ) == 0 ) ||
@@ -1006,6 +1023,8 @@ static void SV_ConnectionlessPacket( const netadr_t *from, msg_t *msg ) {
 	}
 
 #ifdef STEF_LUA_SERVER
+	// This takes care of rate limiting, so SVC_RateLimitAddress calls in other
+	// commands have been commented out.
 	if ( SV_Lua_PacketCommand( from ) ) {
 		return;
 	}
@@ -1088,8 +1107,8 @@ void SV_PacketEvent( const netadr_t *from, msg_t *msg ) {
 	qport = MSG_ReadShort( msg ) & 0xffff;
 
 	// find which client the message is from
-	for (i=0, cl=svs.clients ; i < sv_maxclients->integer ; i++,cl++) {
-		if (cl->state == CS_FREE) {
+	for ( i = 0, cl = svs.clients; i < sv.maxclients; i++, cl++ ) {
+		if ( cl->state == CS_FREE ) {
 			continue;
 		}
 		if ( !NET_CompareBaseAdr( from, &cl->netchan.remoteAddress ) ) {
@@ -1097,7 +1116,7 @@ void SV_PacketEvent( const netadr_t *from, msg_t *msg ) {
 		}
 		// it is possible to have multiple clients from a single IP
 		// address, so they are differentiated by the qport variable
-		if (cl->netchan.qport != qport) {
+		if ( cl->netchan.qport != qport ) {
 #ifndef __WASM__
 			continue;
 #endif
@@ -1108,18 +1127,18 @@ void SV_PacketEvent( const netadr_t *from, msg_t *msg ) {
 #endif
 
 		// make sure it is a valid, in sequence packet
-		if (SV_Netchan_Process(cl, msg)) {
+		if ( SV_Netchan_Process( cl, msg ) ) {
 			// the IP port can't be used to differentiate clients, because
 			// some address translating routers periodically change UDP
 			// port assignments
-			if (cl->netchan.remoteAddress.port != from->port) {
+			if ( cl->netchan.remoteAddress.port != from->port ) {
 				Com_Printf( "SV_PacketEvent: fixing up a translated port\n" );
 				cl->netchan.remoteAddress.port = from->port;
 			}
 			// zombie clients still need to do the Netchan_Process
 			// to make sure they don't need to retransmit the final
 			// reliable message, but they don't do any other processing
-			if (cl->state != CS_ZOMBIE) {
+			if ( cl->state != CS_ZOMBIE ) {
 				cl->lastPacketTime = svs.time;	// don't timeout
 				SV_ExecuteClientMessage( cl, msg );
 			}
@@ -1146,7 +1165,7 @@ static void SV_CalcPings( void ) {
 	int			delta;
 	playerState_t	*ps;
 
-	for (i=0 ; i < sv_maxclients->integer ; i++) {
+	for ( i = 0; i < sv.maxclients; i++ ) {
 		cl = &svs.clients[i];
 		if ( cl->state != CS_ACTIVE ) {
 			cl->ping = 999;
@@ -1235,7 +1254,7 @@ static void SV_CheckTimeouts( void ) {
 	droppoint = svs.time - 1000 * sv_timeout->integer;
 	zombiepoint = svs.time - 1000 * sv_zombietime->integer;
 
-	for ( i = 0, cl = svs.clients ; i < sv_maxclients->integer ; i++, cl++ ) {
+	for ( i = 0, cl = svs.clients ; i < sv.maxclients; i++, cl++ ) {
 		if ( cl->state == CS_FREE ) {
 			continue;
 		}
@@ -1246,7 +1265,7 @@ static void SV_CheckTimeouts( void ) {
 
 		if ( cl->state == CS_ZOMBIE && cl->lastPacketTime - zombiepoint < 0 ) {
 			// using the client id cause the cl->name is empty at this point
-			Com_DPrintf( "Going from CS_ZOMBIE to CS_FREE for client %d\n", i );
+			SV_PrintClientStateChange( cl, CS_FREE );
 			cl->state = CS_FREE;	// can now be reused
 			continue;
 		}
@@ -1292,7 +1311,7 @@ static qboolean SV_CheckPaused( void ) {
 
 	// only pause if there is just a single client connected
 	count = 0;
-	for (i=0,cl=svs.clients ; i < sv_maxclients->integer ; i++,cl++) {
+	for ( i = 0, cl = svs.clients ; i < sv.maxclients; i++, cl++ ) {
 		if ( cl->state >= CS_CONNECTED && cl->netchan.remoteAddress.type != NA_BOT ) {
 			count++;
 		}
@@ -1362,7 +1381,7 @@ void SV_TrackCvarChanges( void )
 	if ( sv.state == SS_DEAD || !svs.clients )
 		return;
 
-	for ( i = 0, cl = svs.clients; i < sv_maxclients->integer; i++, cl++ ) {
+	for ( i = 0, cl = svs.clients; i < sv.maxclients; i++, cl++ ) {
 		if ( cl->state >= CS_CONNECTED ) {
 			SV_UserinfoChanged( cl, qfalse, qfalse ); // do not update userinfo, do not run filter
 		}
@@ -1382,7 +1401,7 @@ static void SV_Restart( const char *reason ) {
 
 	if ( svs.clients ) {
 		// check if we can reset map time without full server shutdown
-		for ( i = 0; i < sv_maxclients->integer; i++ ) {
+		for ( i = 0; i < sv.maxclients; i++ ) {
 			if ( svs.clients[i].state >= CS_CONNECTED ) {
 				sv_shutdown = qtrue;
 				break;
@@ -1476,13 +1495,13 @@ void SV_Frame( int msec ) {
 	// try to do silent restart earlier if possible
 	if ( sv.time > (12*3600*1000) && ( sv_levelTimeReset->integer == 0 || sv.time > 0x40000000 ) ) {
 		if ( svs.clients ) {
-			for ( i = 0; i < sv_maxclients->integer; i++ ) {
+			for ( i = 0; i < sv.maxclients; i++ ) {
 				// FIXME: deal with bots (reconnect?)
 				if ( svs.clients[i].state != CS_FREE && svs.clients[i].netchan.remoteAddress.type != NA_BOT ) {
 					break;
 				}
 			}
-			if ( i == sv_maxclients->integer ) {
+			if ( i == sv.maxclients ) {
 				SV_Restart( "Restarting server" );
 				return;
 			}
@@ -1594,16 +1613,26 @@ Return the time in msec until we expect to be called next
 */
 int SV_SendQueuedPackets( void )
 {
+#ifdef STEF_UDP_DOWNLOAD_OPTIMIZE
+	int delayT;
+	int timeVal = INT_MAX;
+#else
 	int numBlocks;
 	int dlStart, deltaT, delayT;
 	static int dlNextRound = 0;
 	int timeVal = INT_MAX;
+#endif
 
 	// Send out fragmented packets now that we're idle
 	delayT = SV_SendQueuedMessages();
 	if(delayT >= 0)
 		timeVal = delayT;
 
+#ifdef STEF_UDP_DOWNLOAD_OPTIMIZE
+	delayT = SV_SendDownloadMessages();
+	if(delayT >= 0 && delayT < timeVal)
+		timeVal = delayT;
+#else
 	if(sv_dlRate->integer)
 	{
 		// Rate limiting. This is very imprecise for high
@@ -1658,6 +1687,7 @@ int SV_SendQueuedPackets( void )
 		if(SV_SendDownloadMessages())
 			timeVal = 0;
 	}
+#endif
 
 	return timeVal;
 }

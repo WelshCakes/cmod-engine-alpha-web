@@ -30,6 +30,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <sys/time.h>
 #else
 #include <winsock.h>
+#if defined(_DEBUG)
+#include "../win32/win_local.h"
+#endif
 #endif
 
 #include "../client/keys.h"
@@ -194,7 +197,7 @@ void FORMAT_PRINTF(1, 2) QDECL Com_Printf( const char *fmt, ... ) {
 	va_end( argptr );
 
 #ifdef STEF_LUA_EVENTS
-	if ( !stef_lua_suppress_print_event && Stef_Lua_InitEventCall( STEF_LUA_EVENT_LOG_PRINT ) ) {
+	if ( !stef_lua_suppress_print_event && Stef_Lua_InitEventCall( STEF_LUA_EVENT_CONSOLE_PRINT ) ) {
 		// generate lua event with printlevel 2 (general print)
 		Stef_Lua_PushString( "text", msg );
 		Stef_Lua_PushInteger( "printlevel", 2 );
@@ -290,7 +293,7 @@ void FORMAT_PRINTF(1, 2) QDECL Com_DPrintf( const char *fmt, ... ) {
 	char		msg[MAXPRINTMSG];
 
 #ifdef STEF_LUA_EVENTS
-	if ( !stef_lua_suppress_print_event && Stef_Lua_InitEventCall( STEF_LUA_EVENT_LOG_PRINT ) ) {
+	if ( !stef_lua_suppress_print_event && Stef_Lua_InitEventCall( STEF_LUA_EVENT_CONSOLE_PRINT ) ) {
 		va_start( argptr, fmt );
 		Q_vsnprintf( msg, sizeof( msg ), fmt, argptr );
 		va_end( argptr );
@@ -304,10 +307,12 @@ void FORMAT_PRINTF(1, 2) QDECL Com_DPrintf( const char *fmt, ... ) {
 			return;
 		}
 
-		// don't generate a duplicate event in Com_Printf
-		stef_lua_suppress_print_event = qtrue;
-		Com_Printf( S_COLOR_CYAN "%s", msg );
-		stef_lua_suppress_print_event = qfalse;
+		if ( com_developer && com_developer->integer ) {
+			// don't generate a duplicate event in Com_Printf
+			stef_lua_suppress_print_event = qtrue;
+			Com_Printf( S_COLOR_CYAN "%s", msg );
+			stef_lua_suppress_print_event = qfalse;
+		}
 		return;
 	}
 #endif
@@ -340,12 +345,13 @@ void NORETURN FORMAT_PRINTF(2, 3) QDECL Com_Error( errorParm_t code, const char 
 	int			currentTime;
 
 #ifdef STEF_LOGGING_DEFS
-	Logging_FrameEntry( "CLIENTSTATE", "Com_Error", -1, 0, qfalse );
+	Logging_FrameEntry( "CLIENTSTATE", "Com_Error", 0, qfalse );
 #endif
 
 #if defined(_WIN32) && defined(_DEBUG)
 	if ( code != ERR_DISCONNECT && code != ERR_NEED_CD ) {
 		if ( !com_noErrorInterrupt->integer ) {
+			ShowWindow( g_wv.hWnd, SW_MINIMIZE );
 			DebugBreak();
 		}
 	}
@@ -360,7 +366,7 @@ void NORETURN FORMAT_PRINTF(2, 3) QDECL Com_Error( errorParm_t code, const char 
 
 	com_errorEntered = qtrue;
 
-	Cvar_Set( "com_errorCode", va( "%i", code ) );
+	Cvar_SetIntegerValue( "com_errorCode", code );
 
 	// when we are running automated scripts, make sure we
 	// know if anything failed
@@ -3050,8 +3056,7 @@ int Com_EventLoop( void ) {
       CL_DropFile(ev.evPtr, ev.evPtrLength);
       break;
 */
-#endif
-
+#endif // !DEDICATED
 		case SE_CONSOLE:
 			Cbuf_AddText( (char *)ev.evPtr );
 			Cbuf_AddText( "\n" );
@@ -4058,6 +4063,9 @@ void Com_Init( char *commandLine ) {
 	const char *s;
 	int	qport;
 
+	// get the initial time base
+	Sys_Milliseconds();
+
 	Com_Printf( "%s %s %s\n", SVN_VERSION, PLATFORM_STRING, __DATE__ );
 
 	if ( Q_setjmp( abortframe ) ) {
@@ -4357,7 +4365,8 @@ void Com_Init( char *commandLine ) {
 	// set com_frameTime so that if a map is started on the
 	// command line it will still be able to count on com_frameTime
 	// being random enough for a serverid
-	lastTime = com_frameTime = Com_Milliseconds();
+	// lastTime = com_frameTime = Com_Milliseconds();
+	Com_FrameInit();
 
 	if ( !com_errorEntered )
 		Sys_ShowConsole( com_viewlog->integer, qfalse );
@@ -4378,6 +4387,10 @@ void Com_Init( char *commandLine ) {
 #endif
 
 	Com_Printf( "--- Common Initialization Complete ---\n" );
+
+	NET_Init();
+
+	Com_Printf( "Working directory: %s\n", Sys_Pwd() );
 }
 
 
@@ -4572,6 +4585,15 @@ static int Com_TimeVal( int minMsec )
 	return timeVal;
 }
 
+/*
+=================
+Com_FrameInit
+=================
+*/
+void Com_FrameInit( void )
+{
+	lastTime = com_frameTime = Com_Milliseconds();
+}
 
 /*
 =================
@@ -4579,7 +4601,7 @@ Com_Frame
 =================
 */
 #ifdef STEF_LOGGING_DEFS
-LOGFUNCTION_VOID( Com_Frame, (qboolean noDelay), (noDelay), "CLIENTSTATE!-2" ) {
+LOGFUNCTION_VOID( Com_Frame, (qboolean noDelay), (noDelay), "CLIENTSTATE_FRAME" ) {
 #else
 void Com_Frame( qboolean noDelay ) {
 #endif
@@ -4777,9 +4799,7 @@ void Com_Frame( qboolean noDelay ) {
 		}
 		Com_EventLoop();
 
-		if ( !Cbuf_Wait() ) {
-			Cbuf_Execute();
-		}
+		Cbuf_Execute();
 
 		//
 		// client side
@@ -4797,6 +4817,7 @@ void Com_Frame( qboolean noDelay ) {
 #endif
 
 	NET_FlushPacketQueue( 0 );
+	Cbuf_Wait();
 
 	//
 	// report timing information
@@ -5273,6 +5294,7 @@ void Com_RandomBytes( byte *string, int len )
 }
 
 
+#if 0
 static qboolean strgtr(const char *s0, const char *s1) {
 	int l0, l1, i;
 
@@ -5293,6 +5315,7 @@ static qboolean strgtr(const char *s0, const char *s1) {
 	}
 	return qfalse;
 }
+#endif
 
 
 /*
@@ -5300,7 +5323,7 @@ static qboolean strgtr(const char *s0, const char *s1) {
 Com_SortList
 ==================
 */
-static void Com_SortList( char **list, int n )
+void Com_SortList( char **list, int n )
 {
 	const char *m;
 	char *temp;
@@ -5332,6 +5355,7 @@ static void Com_SortList( char **list, int n )
 Com_SortFileList
 ==================
 */
+#if 0
 void Com_SortFileList( char **list, int nfiles, int fastSort )
 {
 	if ( nfiles > 1 && fastSort )
@@ -5354,3 +5378,4 @@ void Com_SortFileList( char **list, int nfiles, int fastSort )
 		} while( flag );
 	}
 }
+#endif

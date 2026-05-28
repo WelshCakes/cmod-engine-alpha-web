@@ -115,7 +115,7 @@ typedef enum {
 	CS_FREE = 0,	// can be reused for a new connection
 	CS_ZOMBIE,		// client has been disconnected, but don't reuse
 					// connection for a couple seconds
-	CS_CONNECTED,	// has been assigned to a client_t, but no gamestate yet
+	CS_CONNECTED,	// has been assigned to a client_t, but no gamestate yet or downloading
 	CS_PRIMED,		// gamestate has been sent, but client hasn't sent a usercmd
 	CS_ACTIVE		// client is fully in game
 } clientState_t;
@@ -149,6 +149,25 @@ struct leakyBucket_s {
 	leakyBucket_t *prev, *next;
 };
 
+#ifndef STEF_REWORK_GAMESTATE_RETRANSMIT
+typedef enum {
+	GSA_INIT = 0,	// gamestate never sent with current sv.serverId
+	GSA_SENT_ONCE,	// gamestate sent once, client can reply with any (messageAcknowledge - gamestateMessageNum) >= 0 and correct serverId
+	GSA_SENT_MANY,	// gamestate sent many times, client must reply with exact gamestateMessageNum == gamestateMessageNum and correct serverId
+	GSA_ACKED		// gamestate acknowledged, no retansmissions needed
+} gameStateAck_t;
+#endif
+
+#ifdef STEF_UDP_DOWNLOAD_OPTIMIZE
+#define MAX_DOWNLOAD_MESSAGE_HISTORY 64
+
+typedef struct {
+	int blockNumber;
+	int msgNumber;
+	int size;
+} downloadMessageRecord_t;
+#endif
+
 typedef struct client_s {
 	clientState_t	state;
 	char			userinfo[MAX_INFO_STRING];		// name, etc
@@ -167,11 +186,46 @@ typedef struct client_s {
 	sharedEntity_t	*gentity;			// SV_GentityNum(clientnum)
 	char			name[MAX_NAME_LENGTH];			// extracted from userinfo, high bits masked
 
-	qboolean		gamestateAcked;		// set to qtrue when serverId = sv.serverId & messageAcknowledge = gamestateMessageNum
+#ifdef STEF_REWORK_GAMESTATE_RETRANSMIT
+	qboolean		downloadGamestateDropCheck;		// perform extra dropped gamestate check after downloads
+#else
+	gameStateAck_t	gamestateAck;
+#endif
 	qboolean		downloading;		// set at "download", reset at gamestate retransmission
 	// int				serverId;		// last acknowledged serverId
 
 	// downloading
+#ifdef STEF_UDP_DOWNLOAD_OPTIMIZE
+	char			downloadName[MAX_QPATH];	// if not empty string, we are downloading
+
+	// source file
+	fileHandle_t	download;					// file being downloaded
+	int				downloadSize;				// total bytes in pk3
+	unsigned int	downloadSrcFileRemaining;	// number of bytes left to read from file
+
+	// file read buffer
+	char			*downloadSrcChunk;			// current chunk buffer
+	unsigned int	downloadSrcChunkPos;		// number of bytes read from current chunk
+	unsigned int	downloadSrcChunkSize;		// total bytes in current chunk
+
+	// download blocks
+	unsigned char	*downloadBlocks[MAX_DOWNLOAD_WINDOW];
+	int				downloadBlockSize[MAX_DOWNLOAD_WINDOW];
+	int				downloadClientBlock;		// one more than last block acknowledged by client
+	int				downloadXmitBlock;			// one more than last block sent (may go backwards for retransmit)
+	int				downloadCurrentBlock;		// one more than last block generated on server
+
+	// download messages
+	downloadMessageRecord_t downloadMsgTable[MAX_DOWNLOAD_MESSAGE_HISTORY];
+	int				downloadClientMsg;			// one more than last msg (table index) acknowledged by client
+	int				downloadRetransmitMsg;		// first message (table index) since xmit block was reset for retransmit
+	int				downloadCurrentMsg;			// one more than last msg (table index) generated on server
+	int				downloadLastSentTime;		// time in Sys_Milliseconds of last outgoing packet
+
+	// rate limiting
+	double			downloadCurrentRate;		// rate in KB/s
+	int				downloadRatePool;			// bytes available to send
+#else
 	char			downloadName[MAX_QPATH]; // if not empty string, we are downloading
 	fileHandle_t	download;			// file being downloaded
  	int				downloadSize;		// total bytes (can't use EOF because of paks)
@@ -183,6 +237,7 @@ typedef struct client_s {
 	int				downloadBlockSize[MAX_DOWNLOAD_WINDOW];
 	qboolean		downloadEOF;		// We have sent the EOF block
 	int				downloadSendTime;	// time we last got an ack from the client
+#endif
 
 	int				deltaMessage;		// frame last client usercmd message
 	int				lastPacketTime;		// svs.time when packet was last received
@@ -227,9 +282,6 @@ typedef struct client_s {
 #ifdef STEF_SERVER_ALT_SWAP_SUPPORT
 	int altSwapWeapons;
 	int altSwapSuspend;
-#endif
-#ifdef STEF_MAP_RESTART_STATIC_SERVERID
-	int mapRestartNetchanSequence;
 #endif
 #ifdef STEF_GAMESTATE_OVERFLOW_FIX
 	int maxEntityBaseline;

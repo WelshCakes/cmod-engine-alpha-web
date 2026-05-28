@@ -356,7 +356,7 @@ void Netchan_Transmit( netchan_t *chan, int length, const byte *data ) {
 	MSG_WriteLong( &send, chan->outgoingSequence );
 
 	// send the qport if we are a client
-	if(chan->sock == NS_CLIENT)
+	if ( chan->sock == NS_CLIENT )
 		MSG_WriteShort( &send, qport->integer );
 
 	if ( !chan->compat )
@@ -689,13 +689,13 @@ static void NET_SendLoopPacket( netsrc_t sock, int length, const void *data )
 //=============================================================================
 
 typedef struct packetQueue_s {
-        struct packetQueue_s *next;
+		struct packetQueue_s *next;
 		struct packetQueue_s *prev;
-        int length;
-        byte *data;
-        netadr_t to;
+		int length;
+		byte *data;
+		netadr_t to;
 		netsrc_t sock;
-        int release;
+		int release;
 } packetQueue_t;
 
 static packetQueue_t *packetQueue = NULL;
@@ -777,7 +777,7 @@ void NET_QueuePacket( netsrc_t sock, int length, const void *data, const netadr_
 
 	if ( offset > 999 ) {
 		offset = 999;
-}
+	}
 
 	new = S_Malloc(sizeof(*new) + length);
 	new->data = (byte *)( new + 1 );
@@ -785,7 +785,7 @@ void NET_QueuePacket( netsrc_t sock, int length, const void *data, const netadr_
 	new->length = length;
 	new->to = *to;
 	new->sock = sock;
-	new->release = Sys_Milliseconds() + (int)((float)offset / com_timescale->value);	
+	new->release = Sys_Milliseconds() + (int)( (float)offset / com_timescale->value );
 	new->next = NULL;
 
 	packetQueue = list_insert( packetQueue, new );

@@ -65,6 +65,8 @@ cvar_t	*r_presentBits;
 
 static cvar_t *r_ignorehwgamma;
 
+cvar_t  *r_teleporterFlash;
+
 cvar_t	*r_fastsky;
 cvar_t	*r_neatsky;
 cvar_t	*r_drawSun;
@@ -1426,11 +1428,10 @@ static void VarInfo( void )
 	} else if ( glConfig.hardwareType == GLHW_RIVA128 ) {
 		ri.Printf( PRINT_ALL, "HACK: riva128 approximations\n" );
 	}
-
+#endif
 	if ( r_finish->integer ) {
 		ri.Printf( PRINT_ALL, "Forcing glFinish\n" );
 	}
-#endif
 }
 
 
@@ -1552,7 +1553,7 @@ static void R_Register( void )
 	ri.Cvar_CheckRange( r_mapGreyScale, "-1", "1", CV_FLOAT );
 	ri.Cvar_SetDescription(r_mapGreyScale, "Desaturate world map textures only, works independently from \\r_greyscale, negative values only desaturate lightmaps.");
 
-	r_subdivisions = ri.Cvar_Get( "r_subdivisions", "4", CVAR_ARCHIVE_ND | CVAR_LATCH );
+	r_subdivisions = ri.Cvar_Get( "r_subdivisions", "1", CVAR_ARCHIVE_ND | CVAR_LATCH );
 	ri.Cvar_SetDescription(r_subdivisions, "Distance to subdivide bezier curved surfaces. Higher values mean less subdivision and less geometric complexity.");
 
 	r_maxpolys = ri.Cvar_Get( "r_maxpolys", XSTRING( MAX_POLYS ), CVAR_LATCH );
@@ -1566,7 +1567,7 @@ static void R_Register( void )
 	r_lodCurveError = ri.Cvar_Get( "r_lodCurveError", "250", CVAR_ARCHIVE_ND );
 	ri.Cvar_CheckRange( r_lodCurveError, "-1", "8192", CV_FLOAT );
 	ri.Cvar_SetDescription( r_lodCurveError, "Level of detail error on curved surface grids. Higher values result in better quality at a distance." );
-	r_lodbias = ri.Cvar_Get( "r_lodbias", "0", CVAR_ARCHIVE_ND );
+	r_lodbias = ri.Cvar_Get( "r_lodbias", "-2", CVAR_ARCHIVE_ND );
 	ri.Cvar_SetDescription( r_lodbias, "Sets the level of detail of in-game models:\n -2: Ultra (further delays LOD transition in the distance)\n -1: Very High (delays LOD transition in the distance)\n 0: High\n 1: Medium\n 2: Low" );
 	r_flares = ri.Cvar_Get ("r_flares", "0", CVAR_ARCHIVE_ND );
 	ri.Cvar_SetDescription( r_flares, "Enables corona effects on light sources." );
@@ -1579,6 +1580,8 @@ static void R_Register( void )
 	ri.Cvar_SetDescription( r_stereoSeparation, "Control eye separation. Resulting separation is \\r_zproj divided by this value in standard units." );
 	r_ignoreGLErrors = ri.Cvar_Get( "r_ignoreGLErrors", "1", CVAR_ARCHIVE_ND );
 	ri.Cvar_SetDescription( r_ignoreGLErrors, "Ignore OpenGL errors." );
+	r_teleporterFlash = ri.Cvar_Get( "r_teleporterFlash", "1", CVAR_ARCHIVE );
+	ri.Cvar_SetDescription( r_teleporterFlash, "Show a white screen instead of a black screen when being teleported in hyperspace." );
 	r_fastsky = ri.Cvar_Get( "r_fastsky", "0", CVAR_ARCHIVE_ND );
 	ri.Cvar_SetDescription( r_fastsky, "Draw flat colored skies." );
 	r_drawSun = ri.Cvar_Get( "r_drawSun", "0", CVAR_ARCHIVE_ND );
@@ -1851,8 +1854,8 @@ void R_Init( void ) {
 	if ( sizeof( glconfig_t ) != 5192 )
 		ri.Error( ERR_FATAL, "Mod ABI incompatible: sizeof(glconfig_t) == %u != 5192", (unsigned int) sizeof( glconfig_t ) );
 #else
-	if (sizeof(glconfig_t) != 11332)
-		ri.Error( ERR_FATAL, "Mod ABI incompatible: sizeof(glconfig_t) == %u != 11332", (unsigned int) sizeof(glconfig_t));
+	if ( sizeof( glconfig_t ) != 11332 )
+		ri.Error( ERR_FATAL, "Mod ABI incompatible: sizeof(glconfig_t) == %u != 11332", (unsigned int) sizeof( glconfig_t ) );
 #endif
 
 	if ( (intptr_t)tess.xyz & 15 ) {
@@ -1868,13 +1871,7 @@ void R_Init( void ) {
 	// init function tables
 	//
 	for ( i = 0; i < FUNCTABLE_SIZE; i++ ) {
-		if ( i == 0 ) {
-			tr.sinTable[i] = EPSILON;
-		} else if ( i == (FUNCTABLE_SIZE - 1) ) {
-			tr.sinTable[i] = -EPSILON;
-		} else {
-			tr.sinTable[i] = sin( DEG2RAD( i * 360.0f / ((float)(FUNCTABLE_SIZE - 1)) ) );
-		}
+		tr.sinTable[i] = sin( DEG2RAD( i * 360.0f / FUNCTABLE_SIZE ) + 0.0001f );
 		tr.squareTable[i] = (i < FUNCTABLE_SIZE / 2) ? 1.0f : -1.0f;
 		if ( i == 0 ) {
 			tr.sawToothTable[i] = EPSILON;
@@ -1974,13 +1971,14 @@ static void RE_Shutdown( refShutdownCode_t code ) {
 	ri.Cmd_RemoveCommand( "vkinfo" );
 #endif
 
-	if ( tr.registered ) {
+	//if ( tr.registered ) {
 		//R_IssuePendingRenderCommands();
 		R_DeleteTextures();
+	//}
+
 #ifdef USE_VULKAN
-		vk_release_resources();
+	vk_release_resources();
 #endif
-	}
 
 	R_DoneFreeType();
 

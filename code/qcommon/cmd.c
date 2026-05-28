@@ -260,7 +260,6 @@ void Cbuf_Execute( void )
 
 	if ( cmd_wait > 0 ) {
 		// delay command buffer execution
-		cmd_wait--;
 		return;
 	}
 
@@ -357,9 +356,11 @@ void Cbuf_Execute( void )
 Cbuf_Wait
 ============
 */
-qboolean Cbuf_Wait( void )
+void Cbuf_Wait( void )
 {
-	return (cmd_wait > 0) ? qtrue : qfalse;
+	if ( cmd_wait > 0 ) {
+		--cmd_wait;
+	}
 }
 
 
@@ -1024,8 +1025,8 @@ Cmd_CompleteCfgName
 ==================
 */
 static void Cmd_CompleteCfgName( const char *args, int argNum ) {
-	if( argNum == 2 ) {
-		Field_CompleteFilename( "", "cfg", qfalse, FS_MATCH_ANY | FS_MATCH_STICK );
+	if ( argNum == 2 ) {
+		Field_CompleteFilename( "", "cfg", qfalse, FS_MATCH_ANY | FS_MATCH_STICK | FS_MATCH_SUBDIRS );
 	}
 }
 

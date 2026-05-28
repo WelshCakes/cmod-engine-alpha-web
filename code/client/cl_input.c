@@ -840,11 +840,10 @@ void CL_WritePacket( int repeat ) {
 		}
 
 		// begin a client move command
-		if ( cl_nodelta->integer || !cl.snap.valid || clc.demowaiting
-			|| clc.serverMessageSequence != cl.snap.messageNum ) {
-			MSG_WriteByte (&buf, clc_moveNoDelta);
+		if ( cl_nodelta->integer || !cl.snap.valid || clc.demowaiting || clc.serverMessageSequence != cl.snap.messageNum ) {
+			MSG_WriteByte( &buf, clc_moveNoDelta );
 		} else {
-			MSG_WriteByte (&buf, clc_move);
+			MSG_WriteByte( &buf, clc_move );
 		}
 
 		// write the command count
@@ -885,6 +884,9 @@ void CL_WritePacket( int repeat ) {
 		Com_Printf( "%i ", buf.cursize );
 	}
 
+#ifdef ELITEFORCE
+	if( !clc.compat )
+#endif
 	MSG_WriteByte( &buf, clc_EOF );
 
 	if ( buf.overflowed ) {
@@ -1027,7 +1029,7 @@ void CL_InitInput( void ) {
 	cl_anglespeedkey = Cvar_Get( "cl_anglespeedkey", "1.5", 0 );
 	Cvar_SetDescription( cl_anglespeedkey, "Set the speed that the direction keys (not mouse) change the view angle." );
 
-	cl_maxpackets = Cvar_Get ("cl_maxpackets", "60", CVAR_ARCHIVE );
+	cl_maxpackets = Cvar_Get ("cl_maxpackets", "125", CVAR_ARCHIVE );
 	Cvar_CheckRange( cl_maxpackets, "15", "125", CV_INTEGER );
 	Cvar_SetDescription( cl_maxpackets, "Set how many client packets are sent to the server per second, can't exceed \\com_maxFPS." );
 	cl_packetdup = Cvar_Get( "cl_packetdup", "1", CVAR_ARCHIVE_ND );

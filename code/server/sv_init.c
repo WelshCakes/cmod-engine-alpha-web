@@ -129,11 +129,7 @@ void SV_SetConfigstring (int index, const char *val) {
 		Stef_Lua_PushInteger( "index", index );
 		Stef_Lua_PushString( "value", val );
 		if ( Stef_Lua_RunEventCall() && Stef_Lua_FinishEventCall() ) {
-			// save value in engine for game module traps to access
-			if ( strcmp( val, sv.configstrings[index] ) ) {
-				Z_Free( sv.configstrings[index] );
-				sv.configstrings[index] = CopyString( val );
-			}
+			return;
 		}
 	}
 #endif
@@ -154,8 +150,14 @@ void SV_SetConfigstring (int index, const char *val) {
 		// send the data to all relevant clients
 		for (i = 0, client = svs.clients; i < sv.maxclients; i++, client++) {
 			if ( client->state < CS_ACTIVE ) {
-				if ( client->state == CS_PRIMED )
-					client->csUpdated[ index ] = qtrue;
+#ifdef STEF_REWORK_GAMESTATE_RETRANSMIT
+				if ( client->state == CS_PRIMED ) {
+#else
+				if ( client->state == CS_PRIMED || client->state == CS_CONNECTED ) {
+					// track CS_CONNECTED clients as well to optimize gamestate acknowledge after downloading/retransmission
+#endif
+					client->csUpdated[index] = qtrue;
+				}
 				continue;
 			}
 			// do not always send server info to all clients
@@ -210,9 +212,6 @@ void SV_SetUserinfo( int index, const char *val ) {
 
 	Q_strncpyz( svs.clients[index].userinfo, val, sizeof( svs.clients[ index ].userinfo ) );
 	Q_strncpyz( svs.clients[index].name, Info_ValueForKey( val, "name" ), sizeof(svs.clients[index].name) );
-#ifdef STEF_LUA_SERVER
-	SV_Lua_SimpleClientEventCall( SV_LUA_EVENT_POST_USERINFO_CHANGED, index );
-#endif
 }
 
 
@@ -288,7 +287,7 @@ static int SV_BoundMaxClients( int minimum ) {
 
 	if ( sv_maxclients->integer < minimum ) {
 		Cvar_SetIntegerValue( "sv_maxclients", minimum );
-	sv_maxclients->modified = qfalse;
+		sv_maxclients->modified = qfalse;
 		return minimum;
 	}
 
@@ -341,6 +340,8 @@ static void SV_Startup( void ) {
 
 	SV_AllocClients( sv_maxclients->integer );
 
+	sv_maxclients->modified = qfalse;
+
 	svs.initialized = qtrue;
 
 	// Don't respect sv_killserver unless a server is actually running
@@ -363,7 +364,7 @@ SV_ChangeMaxClients
 ==================
 */
 static void SV_ChangeMaxClients( void ) {
-	client_t	*oldClients;
+	client_t *oldClients;
 	int		maxclients;
 	int		count;
 	int		i;
@@ -374,6 +375,7 @@ static void SV_ChangeMaxClients( void ) {
 		if ( svs.clients[i].state >= CS_CONNECTED ) {
 			if ( i > count ) {
 				count = i;
+			}
 		}
 	}
 	}
@@ -389,7 +391,7 @@ static void SV_ChangeMaxClients( void ) {
 
 	oldClients = Hunk_AllocateTempMemory( count * sizeof(client_t) );
 	// copy the clients to hunk memory
-	for ( i = 0 ; i < count ; i++ ) {
+	for ( i = 0; i < count; i++ ) {
 		if ( svs.clients[i].state >= CS_CONNECTED ) {
 			oldClients[i] = svs.clients[i];
 		} else {
@@ -404,7 +406,7 @@ static void SV_ChangeMaxClients( void ) {
 	SV_AllocClients( maxclients );
 
 	// copy the clients over
-	for ( i = 0 ; i < count ; i++ ) {
+	for ( i = 0; i < count; i++ ) {
 		if ( oldClients[i].state >= CS_CONNECTED ) {
 			svs.clients[i] = oldClients[i];
 		}
@@ -427,7 +429,7 @@ static void SV_ClearServer( void ) {
 	Stef_Lua_SimpleEventCall( SV_LUA_EVENT_CLEAR_SERVER );
 #endif
 
-	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
+	for ( i = 0; i < MAX_CONFIGSTRINGS; i++ ) {
 		if ( sv.configstrings[i] ) {
 			Z_Free( sv.configstrings[i] );
 		}
@@ -574,7 +576,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// wipe the entire per-level structure
 	SV_ClearServer();
 	sv.maxclients = i;
-	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
+	for ( i = 0; i < MAX_CONFIGSTRINGS; i++ ) {
 		sv.configstrings[i] = CopyString("");
 	}
 
@@ -643,6 +645,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 
 	// run a few frames to allow everything to settle
 	for ( i = 0; i < 3; i++ ) {
+		Cbuf_Wait();
 		sv.time += 100;
 		VM_Call( gvm, 1, GAME_RUN_FRAME, sv.time );
 		SV_BotFrame( sv.time );
@@ -675,7 +678,11 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 				SV_DropClient( &svs.clients[i], denied );
 			} else {
 				if ( !isBot ) {
-					svs.clients[i].gamestateAcked = qfalse;
+#ifdef STEF_REWORK_GAMESTATE_RETRANSMIT
+					svs.clients[i].downloadGamestateDropCheck = qfalse;
+#else
+					svs.clients[i].gamestateAck = GSA_INIT; // resend gamestate, accept first correct serverId
+#endif
 					// when we get the next packet from a connected client,
 					// the new gamestate will be sent
 					svs.clients[i].state = CS_CONNECTED;
@@ -688,6 +695,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	}
 
 	// run another frame to allow things to look at all the players
+	Cbuf_Wait();
 	sv.time += 100;
 	VM_Call( gvm, 1, GAME_RUN_FRAME, sv.time );
 	SV_BotFrame( sv.time );
@@ -806,6 +814,9 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	Com_Printf ("-----------------------------------\n");
 
 	Sys_SetStatus( "Running map %s", mapname );
+
+	// suppress hitch warning
+	Com_FrameInit();
 }
 
 
@@ -846,7 +857,7 @@ void SV_Init( void )
 	sv_maxclients = Cvar_Get ("sv_maxclients", "8", CVAR_SERVERINFO | CVAR_LATCH);
 #endif
 	Cvar_CheckRange( sv_maxclients, "1", XSTRING(MAX_CLIENTS), CV_INTEGER );
-	Cvar_SetDescription( sv_maxclients, "Maximum number of people allowed to join the server dedicated server memory optimizations." );
+	Cvar_SetDescription( sv_maxclients, "Maximum number of people allowed to join the server." );
 
 #ifdef STEF_DEFAULT_SETTINGS_TWEAKS
 	sv_maxclientsPerIP = Cvar_Get( "sv_maxclientsPerIP", "5", CVAR_ARCHIVE );

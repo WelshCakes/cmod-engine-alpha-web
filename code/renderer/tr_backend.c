@@ -454,7 +454,11 @@ static void RB_Hyperspace( void ) {
 
 	RB_SetGL2D();
 
-	c.rgba[0] = c.rgba[1] = c.rgba[2] = (backEnd.refdef.time & 255);
+	if ( r_teleporterFlash->integer == 0 ) {
+		c.rgba[0] = c.rgba[1] = c.rgba[2] = 0; // fade to black
+	} else {
+		c.rgba[0] = c.rgba[1] = c.rgba[2] = (backEnd.refdef.time & 255); // fade to white
+	}
 	c.rgba[3] = 255;
 
 	RB_AddQuadStamp2( backEnd.refdef.x, backEnd.refdef.y, backEnd.refdef.width, backEnd.refdef.height,
@@ -1034,6 +1038,7 @@ void RE_UploadCinematic( int w, int h, int cols, int rows, byte *data, int clien
 
 	if ( !tr.scratchImage[ client ] ) {
 		tr.scratchImage[ client ] = R_CreateImage( va( "*scratch%i", client ), NULL, data, cols, rows, IMGFLAG_CLAMPTOEDGE | IMGFLAG_RGB | IMGFLAG_NOSCALE );
+		return;
 	}
 
 	image = tr.scratchImage[ client ];

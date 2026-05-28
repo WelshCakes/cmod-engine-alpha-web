@@ -211,6 +211,14 @@ static void SV_WriteSnapshotToClient( const client_t *client, msg_t *msg ) {
 
 	// don't send any changes to zombies
 	if ( client->state <= CS_ZOMBIE ) {
+#ifdef ELITEFORCE
+		if ( client->compat ) {
+			MSG_WriteBits( msg, 0, 32 );
+			MSG_WriteBits( msg, 0, 20 );
+			MSG_WriteBits( msg, (MAX_GENTITIES-1), GENTITYNUM_BITS );
+			return;
+		}
+#endif
 		// playerstate
 		MSG_WriteByte( msg, 0 ); // # of changes
 		MSG_WriteBits( msg, 0, 1 ); // no array changes
@@ -793,15 +801,28 @@ void SV_SendClientMessages( void )
 	svs.msgTime = Sys_Milliseconds();
 
 	// send a message to each connected client
-	for( i = 0; i < sv_maxclients->integer; i++ )
+	for ( i = 0; i < sv.maxclients; i++ )
 	{
 		c = &svs.clients[ i ];
-		
+
 		if ( c->state == CS_FREE )
 			continue;		// not connected
 
-		if ( *c->downloadName )
+		//if ( *c->downloadName )
+		//	continue;		// Client is downloading, don't send snapshots
+
+		if ( c->state == CS_CONNECTED )
 			continue;		// Client is downloading, don't send snapshots
+
+#ifdef STEF_UDP_DOWNLOAD_NO_DOUBLE_LOAD
+		// extra check since downloading clients can now be CS_PRIMED
+		if ( c->downloading ) {
+			continue;
+		}
+#endif
+
+		//if ( !c->gamestateAcked )
+		//	continue;		// waiting usercmd/downloading
 
 		// 1. Local clients get snapshots every server frame
 		// 2. Remote clients get snapshots depending from rate and requested number of updates
@@ -814,7 +835,7 @@ void SV_SendClientMessages( void )
 			c->rateDelayed = qtrue;
 			continue;		// Drop this snapshot if the packet queue is still full or delta compression will break
 		}
-	
+
 		if ( SV_RateMsec( c ) > 0 )
 		{
 			// Not enough time since last packet passed through the line

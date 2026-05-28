@@ -370,7 +370,7 @@ static sfxHandle_t S_Base_RegisterSound( const char *name, qboolean compressed )
 	if ( sfx->soundData ) {
 		if ( sfx->defaultSound ) {
 #ifndef __WASM__
-			Com_Printf( S_COLOR_YELLOW "WARNING: could not find %s - using default\n", sfx->soundName );
+			Com_DPrintf( S_COLOR_YELLOW "WARNING: could not find %s - using default\n", sfx->soundName );
 #endif
 			return 0;
 		}
@@ -393,7 +393,7 @@ static sfxHandle_t S_Base_RegisterSound( const char *name, qboolean compressed )
 		sfxHash[hash] = sfx->next;
 #else
 #ifndef __WASM__
-		Com_Printf( S_COLOR_YELLOW "WARNING: could not find %s - using default\n", sfx->soundName );
+		Com_DPrintf( S_COLOR_YELLOW "WARNING: could not find %s - using default\n", sfx->soundName );
 #endif
 #endif
 		return 0;

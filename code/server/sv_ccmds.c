@@ -328,7 +328,7 @@ static void SV_MapRestart_f( void ) {
 	// to give them the correct time so that when they finish loading
 	// they don't violate the backwards time check in cl_cgame.c
 	for ( i = 0; i < sv.maxclients; i++ ) {
-		if (svs.clients[i].state == CS_PRIMED) {
+		if ( svs.clients[i].state == CS_PRIMED ) {
 			svs.clients[i].oldServerTime = sv.restartTime;
 		}
 	}
@@ -347,6 +347,7 @@ static void SV_MapRestart_f( void ) {
 	// run a few frames to allow everything to settle
 	for ( i = 0; i < 3; i++ )
 	{
+		Cbuf_Wait();
 		sv.time += 100;
 		VM_Call( gvm, 1, GAME_RUN_FRAME, sv.time );
 	}
@@ -396,6 +397,7 @@ static void SV_MapRestart_f( void ) {
 	}
 
 	// run another frame to allow things to look at all the players
+	Cbuf_Wait();
 	sv.time += 100;
 	VM_Call( gvm, 1, GAME_RUN_FRAME, sv.time );
 	svs.time += 100;
@@ -439,24 +441,24 @@ static void SV_Kick_f( void ) {
 
 	cl = SV_GetPlayerByHandle();
 	if ( !cl ) {
-		if ( !Q_stricmp(Cmd_Argv(1), "all") ) {
+		if ( !Q_stricmp( Cmd_Argv( 1 ), "all" ) ) {
 			for ( i = 0, cl = svs.clients; i < sv.maxclients; i++, cl++ ) {
 				if ( cl->state < CS_CONNECTED ) {
 					continue;
 				}
-				if( cl->netchan.remoteAddress.type == NA_LOOPBACK ) {
+				if ( cl->netchan.remoteAddress.type == NA_LOOPBACK ) {
 					continue;
 				}
 				SV_DropClient( cl, "was kicked" );
 				cl->lastPacketTime = svs.time;	// in case there is a funny zombie
 			}
 		}
-		else if ( !Q_stricmp(Cmd_Argv(1), "allbots") ) {
+		else if ( !Q_stricmp( Cmd_Argv( 1 ), "allbots" ) ) {
 			for ( i = 0, cl = svs.clients; i < sv.maxclients; i++, cl++ ) {
 				if ( cl->state < CS_CONNECTED ) {
 					continue;
 				}
-				if( cl->netchan.remoteAddress.type != NA_BOT ) {
+				if ( cl->netchan.remoteAddress.type != NA_BOT ) {
 					continue;
 				}
 				SV_DropClient( cl, "was kicked" );
@@ -465,8 +467,8 @@ static void SV_Kick_f( void ) {
 		}
 		return;
 	}
-	if( cl->netchan.remoteAddress.type == NA_LOOPBACK ) {
-		Com_Printf("Cannot kick host player\n");
+	if ( cl->netchan.remoteAddress.type == NA_LOOPBACK ) {
+		Com_Printf( "Cannot kick host player\n" );
 		return;
 	}
 
@@ -1566,7 +1568,7 @@ SV_CompleteMapName
 */
 static void SV_CompleteMapName( const char *args, int argNum ) {
 	if ( argNum == 2 ) 	{
-		if ( sv_pure->integer ) {
+		if ( sv.pure != 0 ) {
 			Field_CompleteFilename( "maps", "bsp", qtrue, FS_MATCH_PK3s | FS_MATCH_STICK );
 		} else {
 			Field_CompleteFilename( "maps", "bsp", qtrue, FS_MATCH_ANY | FS_MATCH_STICK );

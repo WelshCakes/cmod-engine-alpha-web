@@ -443,13 +443,17 @@ static qboolean CL_GetValue( char* value, int valueSize, const char* key ) {
 		return qtrue;
 	}
 
-
 #ifdef __WASM__
 	if ( !Q_stricmp( key, "trap_GetAsyncFiles" ) ) {
 		Com_sprintf( value, valueSize, "%i", CG_GETASYNCFILES );
 		return qtrue;
 	}
 #endif
+
+	if ( !Q_stricmp( key, "trap_Cvar_SetDescription_Q3E" ) ) {
+		Com_sprintf( value, valueSize, "%i", CG_CVAR_SETDESCRIPTION );
+		return qtrue;
+	}
 
 	return qfalse;
 }
@@ -863,6 +867,10 @@ static intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 
 	case CG_IS_RECORDING_DEMO:
 		return clc.demorecording;
+
+	case CG_CVAR_SETDESCRIPTION:
+		Cvar_SetDescription2( (const char*)VMA(1), (const char*)VMA(2) );
+		return 0;
 
 	case CG_TRAP_GETVALUE:
 		VM_CHECKBOUNDS( cgvm, args[1], args[2] );

@@ -604,7 +604,11 @@ static void Cvar_Print( const cvar_t *v ) {
 		Com_Printf (" default:\"%s" S_COLOR_WHITE "\"",
 			v->resetString );
 	}
-
+#ifdef _DEBUG
+	if ( v->modified ) {
+		Com_Printf( " (modified)" );
+	}
+#endif
 	Com_Printf ("\n");
 
 	if ( v->latchedString ) {
@@ -1917,6 +1921,33 @@ void Cvar_SetDescription( cvar_t *var, const char *var_description )
 
 /*
 =====================
+Cvar_SetDescription
+=====================
+*/
+void Cvar_SetDescription2( const char *var_name, const char* var_description )
+{
+	cvar_t *var;
+
+	var = Cvar_FindVar( var_name );
+	if ( !var || !var_description )
+		return;
+
+	if ( strlen( var_description ) >= MAX_CVAR_VALUE_STRING )
+		return;
+
+	if ( var_description[0] != '\0' )
+	{
+		if ( var->description != NULL )
+		{
+			Z_Free( var->description );
+		}
+		var->description = CopyString( var_description );
+	}
+}
+
+
+/*
+=====================
 Cvar_SetGroup
 =====================
 */
@@ -2118,3 +2149,19 @@ void Cvar_Init (void)
 	Cmd_AddCommand ("cvar_restart", Cvar_Restart_f);
 	Cmd_AddCommand ("cvar_trim", Cvar_Trim_f);
 }
+
+#ifdef STEF_LUA_SUPPORT
+/*
+=================
+Stef_Lua_CvarEmitList
+=================
+*/
+void Stef_Lua_CvarEmitList( void ) {
+	cvar_t *var;
+	for ( var = cvar_vars; var; var = var->next ) {
+		if ( var->name ) {
+			Stef_Lua_PushString( NULL, var->name );
+		}
+	}
+}
+#endif
