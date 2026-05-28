@@ -1274,9 +1274,6 @@ void SV_ClientEnterWorld( client_t *client ) {
 
 	client->oldServerTime = 0;
 
-	client->gamestateAcked = qtrue;
-	client->oldServerTime = 0;
-
 	// resend all configstrings using the cs commands since these are
 	// no longer sent when the client is CS_PRIMED
 	if ( !isBot ) {

@@ -4929,15 +4929,19 @@ static void FS_Startup( void ) {
 
 // BECAUSE OF REPACKAGING!
 #ifndef __WASM__
-	// check original q3a files
 #ifdef ELITEFORCE
 	if ( FS_IsBaseGame( BASEGAME ) ) {
+		if ( !Q_stricmp( fs_basegame->string, BASEGAME ) ) {
+			FS_CheckIdPaks();
+		}
+	}
 #else
 	if ( FS_IsBaseGame( BASEGAME ) || FS_IsBaseGame( BASEDEMO ) ) {
-#endif
-	if ( !Q_stricmp( fs_basegame->string, BASEGAME ) || !Q_stricmp( fs_basegame->string, BASEDEMO ) )
-		FS_CheckIdPaks();
+		if ( !Q_stricmp( fs_basegame->string, BASEGAME ) || !Q_stricmp( fs_basegame->string, BASEDEMO ) ) {
+			FS_CheckIdPaks();
+		}
 	}
+#endif
 #endif
 
 #ifdef FS_MISSING

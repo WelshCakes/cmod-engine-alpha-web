@@ -56,21 +56,18 @@ async function compareZip(pk3File) {
 
     // TODO: repack the pk3 file
     let tempFile = 'Archive.' + (Date.now() + '').substring(20, -5)
-    for(let pack_i = 0; pack_i < textFiles.length; pack_i++) {
-      console.log(Math.round(pack_i / textFiles.length * 100, 2), textFiles[pack_i])
-      let startArgs = ['-9']
-      //.concat(pack_i == textFiles.length - 1 ? ['-o'] : [])
-        .concat(['-u', tempFile, textFiles[pack_i]])
-      //console.log(startArgs)  
-      
+    console.log('Zipping ' + textFiles.length + ' files in chunks...');
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < textFiles.length; i += CHUNK_SIZE) {
+      let chunk = textFiles.slice(i, i + CHUNK_SIZE);
+      console.log('Zipping chunk ' + Math.round(i / textFiles.length * 100) + '%...');
+      let startArgs = ['-9', '-u', tempFile].concat(chunk);
       await spawnSync('zip', startArgs, {
         cwd: sourcePath,
-        timeout: 2000,
-      })
-      
-      // slow it down a little or write locks won't work and junk files don't get merged in
-      await new Promise((resolve) => setTimeout(resolve, 100))
+        timeout: 10000,
+      });
     }
+    console.log('Zipping complete.');
 
     if(fs.existsSync(finishedPath))
       fs.unlinkSync(finishedPath)
@@ -112,13 +109,17 @@ async function convertImage(pk3File) {
 
   if( (force || !fs.existsSync(pk3Path)) && fs.existsSync(altPath)) {
 
-    let alphaCmd
+    let alphaCmd = ''
     try {
-      let alphaProcess = await spawnSync('magick', [altPath, '-scale', '1x1!', '-format', "'%[fx:int(255*a+.5)]'", 'info:-'], {
+      let alphaProcess = await spawnSync('convert', [altPath, '-scale', '1x1!', '-format', "'%[fx:int(255*a+.5)]'", 'info:-'], {
         cwd: SOURCE_PATH,
         timeout: 3000,
       })
-      alphaCmd = alphaProcess.stdout.toString('utf-8')
+      if (alphaProcess.stdout) {
+        alphaCmd = alphaProcess.stdout.toString('utf-8')
+      } else {
+        console.error('convert stdout is empty/null, stderr:', alphaProcess.stderr ? alphaProcess.stderr.toString('utf-8') : 'none')
+      }
       //console.log(alphaCmd)
       //console.log(alphaProcess.stderr.toString('utf-8'))
     } catch (e) {
@@ -127,8 +128,8 @@ async function convertImage(pk3File) {
 
     //const MATCH = /false/ig
     const MATCH = /'0'|'255'/ig
-    if(/* true || TODO: allAlpha? */ !alphaCmd.match(MATCH) && pk3File.indexOf('.png') == -1
-      || alphaCmd.match(MATCH) && pk3File.indexOf('.jpg') == -1) {
+    if(/* true || TODO: allAlpha? */ !alphaCmd || (!alphaCmd.match(MATCH) && pk3File.indexOf('.png') == -1)
+      || (alphaCmd.match(MATCH) && pk3File.indexOf('.jpg') == -1)) {
       if(fs.existsSync(pk3Path)) {
         fs.unlinkSync(pk3Path)
       }
@@ -140,17 +141,17 @@ async function convertImage(pk3File) {
 
     let imageProcess
     if(pk3File.indexOf('.png') != -1) {
-      imageProcess = await spawnSync('magick', [altPath, '-auto-orient', '-quality', '50%', pk3Path], {
+      imageProcess = await spawnSync('convert', [altPath, '-auto-orient', '-quality', '50%', pk3Path], {
         cwd: SOURCE_PATH,
         timeout: 3000,
       })
   
     } else
-    imageProcess = await spawnSync('magick', [altPath, '-quality', '50%', pk3Path], {
+    imageProcess = await spawnSync('convert', [altPath, '-quality', '50%', pk3Path], {
       cwd: SOURCE_PATH,
       timeout: 3000,
     })
-    //console.log('magick', [altPath, '-quality', '50%', pk3Path], imageProcess.stdout.toString('utf-8'))
+    //console.log('convert', [altPath, '-quality', '50%', pk3Path], imageProcess.stdout ? imageProcess.stdout.toString('utf-8') : 'none')
     
     await new Promise((resolve) => setTimeout(resolve, 100))
 
@@ -255,9 +256,11 @@ async function generatePalette(pk3File) {
         cwd: pk3Path,
         timeout: 3000,
       })
-      let colorCmd = alphaProcess.stdout.toString('utf-8')
-      palette[imageFiles[image_i]] = colorCmd
-      console.log(imageFiles[image_i], colorCmd)
+      let colorCmd = alphaProcess.stdout ? alphaProcess.stdout.toString('utf-8') : ''
+      if (colorCmd) {
+        palette[imageFiles[image_i]] = colorCmd
+        console.log(imageFiles[image_i], colorCmd)
+      }
     } catch (e) {
       console.error(e.message, (e.output || '').toString('utf-8').substr(0, 1000))
     }
@@ -291,14 +294,22 @@ async function convertAudio(pk3File) {
     return
   }
 
-  let audioProcess = await spawnSync('oggenc', ['-q', '7', '--quiet', pk3Path, '-n', altPath], {
-    cwd: SOURCE_PATH,
-    timeout: 3000,
-  })
+  let audioProcess
+  if (pk3File.toLowerCase().endsWith('.mp3')) {
+    audioProcess = await spawnSync('ffmpeg', ['-y', '-i', pk3Path, '-codec:a', 'libvorbis', '-qscale:a', '5', altPath], {
+      cwd: SOURCE_PATH,
+      timeout: 3000,
+    })
+  } else {
+    audioProcess = await spawnSync('oggenc', ['-q', '7', '--quiet', pk3Path, '-n', altPath], {
+      cwd: SOURCE_PATH,
+      timeout: 3000,
+    })
+  }
 
   await new Promise((resolve) => setTimeout(resolve, 100))
-  console.log(audioProcess.stderr.toString('utf-8'))
-  console.log(audioProcess.stdout.toString('utf-8'))
+  console.log(audioProcess.stderr ? audioProcess.stderr.toString('utf-8') : '')
+  console.log(audioProcess.stdout ? audioProcess.stdout.toString('utf-8') : '')
 
   return pk3Path
 }

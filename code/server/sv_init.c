@@ -378,7 +378,6 @@ static void SV_ChangeMaxClients( void ) {
 			}
 		}
 	}
-	}
 	count++;
 
 	// never go below the highest client number in use
